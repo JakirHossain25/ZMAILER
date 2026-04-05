@@ -2,11 +2,14 @@ services:
   - type: web
     name: zmaler-email-platform
     runtime: python
-    repo: https://github.com/yourusername/zmaler-email-platform
+    repo: https://github.com/JakirHossain25/ZMAILER
+    branch: main
     plan: starter
-    region: oregon
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --workers 4 --threads 2 --timeout 120 --bind 0.0.0.0:$PORT
+    region: frankfurt
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    startCommand: gunicorn wsgi:application --config gunicorn.py
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
@@ -14,19 +17,30 @@ services:
         generateValue: true
       - key: FLASK_DEBUG
         value: false
+      - key: FLASK_ENV
+        value: production
       - key: DATABASE_PATH
         value: /app/data/users.db
       - key: DATA_DIR
         value: /app/data
       - key: MAX_WORKERS
-        value: 10
+        value: 5
       - key: MAX_EMAILS_PER_DAY_BASIC
         value: 2000
       - key: MAX_EMAILS_PER_DAY_PREMIUM
         value: 100000
       - key: EMAIL_SEND_TIMEOUT
         value: 30
+      - key: BASIC_USERS
+        value: "basic_padma_2024:Padma,basic_jamuna_2024:Jamuna,basic_brahmputra_2024:Brahmputra"
+      - key: DEVELOPER_NAME
+        value: "MD. JAKIR HOSSAIN"
+      - key: WHATSAPP_NUMBER
+        value: "+8801307731628"
+      - key: CORS_ORIGINS
+        value: "*"
     disk:
       name: data
       mountPath: /app/data
       sizeGB: 10
+    healthCheckPath: /health

@@ -5,4 +5,3 @@ google-auth-httplib2==0.1.1
 google-api-python-client==2.100.0
 python-dotenv==1.0.0
 gunicorn==21.2.0
-email-validator==2.0.0
