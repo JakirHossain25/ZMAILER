@@ -1,5 +1,12 @@
-# Object file
-*.o
-
-# Ada Library Information
-*.ali
+__pycache__/
+*.pyc
+.env
+data/
+temp_attachments/
+uploads/
+instance/
+*.pickle
+*.json
+*.log
+venv/
+env/

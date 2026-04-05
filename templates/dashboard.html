@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>ZMALER - Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+            min-height: 100vh;
+            color: #fff;
+            overflow-x: hidden;
+        }
+        
+        /* Sidebar */
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 280px;
+            height: 100%;
+            background: rgba(15, 12, 41, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            overflow-y: auto;
+            transition: transform 0.3s ease;
+            z-index: 1000;
+            border-right: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .sidebar-header {
+            text-align: center;
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .sidebar-header h2 {
+            color: #00d4ff;
+            font-size: 28px;
+        }
+        
+        .user-info {
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .credit-bar {
+            background: rgba(255,255,255,0.2);
+            border-radius: 10px;
+            height: 8px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        
+        .credit-fill {
+            background: linear-gradient(90deg, #00d4ff, #090979);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        
+        .nav-item {
+            display: block;
+            padding: 12px 15px;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 10px;
+            margin-bottom: 8px;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        
+        .nav-item:hover, .nav-item.active {
+            background: linear-gradient(90deg, #00d4ff, #090979);
+        }
+        
+        .logout-btn {
+            background: rgba(255,0,0,0.2);
+            margin-top: 20px;
+        }
+        
+        .logout-btn:hover { background: #ff4444; }
+        
+        /* Main Content */
+        .main-content {
+            margin-left: 280px;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        /* Cards */
+        .card {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .card h3 {
+            margin-bottom: 20px;
+            color: #00d4ff;
+            border-left: 3px solid #00d4ff;
+            padding-left: 10px;
+        }
+        
+        /* Form Elements */
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 12px 14px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 10px;
+            color: white;
+            font-size: 14px;
+        }
+        
+        .form-group textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+        
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: #00d4ff;
+        }
+        
+        .radio-group {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .radio-group label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
+        
+        /* Buttons */
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary { background: #00d4ff; color: #0f0c29; }
+        .btn-success { background: #00ff88; color: #0f0c29; }
+        .btn-danger { background: #ff4444; color: white; }
+        .btn-warning { background: #ffaa00; color: #0f0c29; }
+        .btn-secondary { background: #6c5ce7; color: white; }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 15px;
+        }
+        
+        /* Progress */
+        .progress {
+            background: rgba(255,255,255,0.2);
+            border-radius: 10px;
+            height: 30px;
+            overflow: hidden;
+            margin: 15px 0;
+        }
+        
+        .progress-bar {
+            background: linear-gradient(90deg, #00d4ff, #090979);
+            height: 100%;
+            width: 0%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+            transition: width 0.3s;
+        }
+        
+        /* Log Area - FIXED: No auto-scrolling */
+        .log-area {
+            background: rgba(0,0,0,0.5);
+            border-radius: 10px;
+            padding: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 15px;
+        }
+        
+        .log-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            word-wrap: break-word;
+        }
+        
+        /* Attachment List */
+        .attachment-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .attachment-item {
+            background: rgba(0,212,255,0.2);
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .remove-attachment {
+            cursor: pointer;
+            color: #ff4444;
+        }
+        
+        /* Menu Toggle */
+        .menu-toggle {
+            display: none;
+            position: fixed;
+            top: 15px;
+            left: 15px;
+            background: #00d4ff;
+            color: #0f0c29;
+            border: none;
+            width: 45px;
+            height: 45px;
+            border-radius: 10px;
+            font-size: 24px;
+            cursor: pointer;
+            z-index: 1001;
+        }
+        
+        /* Loading Overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 3000;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #00d4ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+        }
+        
+        .status-success { background: #00ff88; color: #0f0c29; }
+        .status-error { background: #ff4444; color: white; }
+        .status-warning { background: #ffaa00; color: #0f0c29; }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .menu-toggle { display: block; }
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.open { transform: translateX(0); }
+            .main-content { margin-left: 0; padding: 60px 15px 15px 15px; }
+            .button-group { flex-direction: column; }
+            .btn { width: 100%; }
+        }
+        
+        .email-list {
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            padding: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+        
+        small {
+            display: block;
+            margin-top: 5px;
+            color: #aaa;
+            font-size: 11px;
+        }
+        
+        .helper-text {
+            color: #00d4ff;
+            font-size: 11px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+    
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h2>ZMALER</h2>
+            <p style="font-size: 12px;">v5.0 Professional</p>
+        </div>
+        
+        <div class="user-info">
+            <h4 id="usernameDisplay"></h4>
+            <div id="creditsInfo">
+                <span id="creditsText">Loading...</span>
+            </div>
+            <div class="credit-bar">
+                <div class="credit-fill" id="creditFill"></div>
+            </div>
+        </div>
+        
+        <div class="nav-item active" onclick="showTab('send')">📧 Send Emails</div>
+        <div class="nav-item" onclick="showTab('terms')">📜 Terms & Conditions</div>
+        <div class="nav-item" onclick="showTab('about')">ℹ️ About</div>
+        <div class="nav-item logout-btn" onclick="logout()">🚪 Logout</div>
+    </div>
+    
+    <div class="main-content">
+        <!-- Send Tab -->
+        <div id="sendTab">
+            <!-- Gmail Auth Card -->
+            <div class="card">
+                <h3>🔐 Gmail API Configuration</h3>
+                <div class="form-group">
+                    <label>Upload client_secret.json file</label>
+                    <input type="file" id="clientSecretFile" accept=".json">
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="uploadClientSecret()">📤 Upload</button>
+                    </div>
+                    <small>Download from Google Cloud Console > Credentials (Desktop App type)</small>
+                </div>
+                <div id="authStatus">
+                    <span id="authStatusText">⚠️ Not configured</span>
+                </div>
+                <div class="button-group" id="authBtnGroup" style="display: none;">
+                    <button class="btn btn-success" onclick="authorizeGmail()">🔐 Authorize Gmail</button>
+                </div>
+            </div>
+            
+            <!-- Send Method -->
+            <div class="card">
+                <h3>📡 Send Method</h3>
+                <div class="radio-group">
+                    <label><input type="radio" name="sendMethod" value="gmail_api" checked onchange="toggleSendMethod()"> Gmail API (Recommended)</label>
+                    <label><input type="radio" name="sendMethod" value="smtp" onchange="toggleSendMethod()"> SMTP Server</label>
+                </div>
+            </div>
+            
+            <!-- SMTP Card -->
+            <div class="card" id="smtpCard" style="display: none;">
+                <h3>⚙️ SMTP Configuration</h3>
+                <div class="form-group">
+                    <label>SMTP Server</label>
+                    <input type="text" id="smtpHost" placeholder="smtp.gmail.com">
+                    <small>Common servers: smtp.gmail.com, smtp.outlook.com, smtp.yahoo.com</small>
+                </div>
+                <div class="form-group">
+                    <label>SMTP Port</label>
+                    <input type="number" id="smtpPort" value="587">
+                    <small>587 for TLS, 465 for SSL</small>
+                </div>
+                <div class="form-group">
+                    <label>SMTP Username (Your Email)</label>
+                    <input type="email" id="smtpUsername" placeholder="your@email.com">
+                </div>
+                <div class="form-group">
+                    <label>SMTP Password / App Password</label>
+                    <input type="password" id="smtpPassword" placeholder="Your password or app password">
+                    <small>For Gmail, use an App Password (2FA required)</small>
+                </div>
+                <div class="form-group">
+                    <label>Sender Name</label>
+                    <input type="text" id="smtpSenderName" placeholder="Sender Name">
+                </div>
+            </div>
+            
+            <!-- Sender Info -->
+            <div class="card">
+                <h3>📤 Sender Information</h3>
+                <div class="form-group">
+                    <label>Sender Name</label>
+                    <input type="text" id="senderName" placeholder="Sender Name">
+                </div>
+                <div class="button-group">
+                    <button class="btn btn-warning" onclick="generateRandomName()">🎲 Generate Random Name</button>
+                </div>
+                <div class="form-group" id="senderEmailGroup">
+                    <label>Sender Email</label>
+                    <input type="email" id="senderEmail" placeholder="your.email@gmail.com">
+                </div>
+            </div>
+            
+            <!-- Email Content -->
+            <div class="card">
+                <h3>✉️ Email Content</h3>
+                <div class="form-group">
+                    <label>Subject</label>
+                    <input type="text" id="subject" placeholder="Email Subject">
+                    <small class="helper-text">Available placeholders: #NAME#, #EMAIL#, #DATE#, #TIME#, #BILL#, #RAND#</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Body Type</label>
+                    <div class="radio-group">
+                        <label><input type="radio" name="bodyType" value="plain" checked onchange="toggleBodyType()"> Plain Text</label>
+                        <label><input type="radio" name="bodyType" value="html" onchange="toggleBodyType()"> HTML</label>
+                    </div>
+                </div>
+                
+                <div class="form-group" id="plainBodyGroup">
+                    <label>Plain Text Body</label>
+                    <textarea id="plainBody" placeholder="Enter your email content here...&#10;&#10;Hello #NAME#,&#10;&#10;Your bill #BILL# is ready.&#10;&#10;Best regards,&#10;The Team"></textarea>
+                </div>
+                
+                <div class="form-group" id="htmlBodyGroup" style="display: none;">
+                    <label>HTML Body</label>
+                    <textarea id="htmlBody" rows="8" placeholder='&lt;html&gt;&#10;&lt;body&gt;&#10;&lt;h1&gt;Hello #NAME#&lt;/h1&gt;&#10;&lt;p&gt;Your bill #BILL# is ready.&lt;/p&gt;&#10;&lt;p&gt;Thank you for your business!&lt;/p&gt;&#10;&lt;/body&gt;&#10;&lt;/html&gt;'></textarea>
+                    <small>You can use HTML tags and placeholders</small>
+                </div>
+            </div>
+            
+            <!-- Attachments -->
+            <div class="card">
+                <h3>📎 Attachments</h3>
+                <div class="form-group">
+                    <label>Upload Files (PDF, Images, Documents, etc.)</label>
+                    <input type="file" id="attachmentFile" multiple>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="uploadAttachments()">📤 Upload</button>
+                        <button class="btn btn-secondary" onclick="clearAttachments()">🗑️ Clear All</button>
+                    </div>
+                    <small>Supported: PDF, DOCX, DOC, XLSX, PPTX, Images (PNG, JPG, GIF), TXT, and more</small>
+                </div>
+                <div id="attachmentList" class="attachment-list"></div>
+            </div>
+            
+            <!-- Recipients -->
+            <div class="card">
+                <h3>👥 Recipients</h3>
+                <div class="form-group">
+                    <label>Upload Email List (TXT or CSV)</label>
+                    <input type="file" id="emailFile" accept=".txt,.csv">
+                    <small>Each email on a new line or comma-separated</small>
+                </div>
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="uploadEmailFile()">📂 Upload & Preview</button>
+                </div>
+                <div id="emailPreview" class="email-list" style="display: none;">
+                    <h4>Email List Preview (<span id="emailCount">0</span> emails)</h4>
+                    <div id="emailList"></div>
+                </div>
+            </div>
+            
+            <!-- Actions -->
+            <div class="card">
+                <h3>🚀 Actions</h3>
+                <div class="button-group">
+                    <button class="btn btn-success" onclick="startSending()" id="sendBtn">📧 Send Emails</button>
+                    <button class="btn btn-danger" onclick="cancelSending()" id="cancelBtn" style="display: none;">⛔ Cancel</button>
+                    <button class="btn btn-primary" onclick="openSpamChecker()">🔍 Spam Check</button>
+                    <button class="btn btn-primary" onclick="openGMass()">📬 GMass Inbox</button>
+                    <button class="btn btn-secondary" onclick="clearAll()">🗑️ Clear All</button>
+                </div>
+                
+                <div class="progress" id="progressContainer" style="display: none;">
+                    <div class="progress-bar" id="progressBar">0%</div>
+                </div>
+                
+                <div id="statusMsg"></div>
+                
+                <!-- Log Area - Manual scroll only -->
+                <div class="log-area" id="logArea">
+                    <div class="log-entry">✅ Ready to send emails...</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Terms Tab -->
+        <div id="termsTab" style="display: none;">
+            <div class="card">
+                <h3>📜 Terms and Conditions</h3>
+                <div id="termsContent" style="max-height: 400px; overflow-y: auto; line-height: 1.6;"></div>
+                <div class="button-group">
+                    <button class="btn btn-success" onclick="acceptTerms()">✓ I Accept the Terms</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- About Tab -->
+        <div id="aboutTab" style="display: none;">
+            <div class="card">
+                <h3>ℹ️ About ZMALER</h3>
+                <div style="text-align: center; padding: 20px;">
+                    <h2 style="color: #00d4ff;">ZMALER</h2>
+                    <p>Professional Email Marketing Platform</p>
+                    <p>Version 5.0</p>
+                    <hr style="margin: 20px 0; border-color: rgba(255,255,255,0.1);">
+                    <p><strong>👨‍💻 Developer:</strong> <span id="devName"></span></p>
+                    <p><strong>📱 WhatsApp:</strong> <span id="whatsappNum"></span></p>
+                    <hr style="margin: 20px 0; border-color: rgba(255,255,255,0.1);">
+                    <p>© 2024 ZMALER. All rights reserved.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner"></div>
+    </div>
+    
+    <script>
+        let currentUser = '';
+        let termsAccepted = false;
+        let isSending = false;
+        let cancelFlag = false;
+        let currentEmails = [];
+        let attachmentPaths = [];
+        
+        async function loadUserData() {
+            try {
+                const response = await fetch('/get_user_data');
+                const data = await response.json();
+                if (data.error) {
+                    window.location.href = '/';
+                    return;
+                }
+                currentUser = data.username;
+                document.getElementById('usernameDisplay').innerHTML = `👤 ${data.username}`;
+                document.getElementById('devName').innerText = data.developer_name;
+                document.getElementById('whatsappNum').innerText = data.whatsapp_number;
+                
+                const creditsLeft = data.credits_left;
+                const maxCredits = data.max_credits;
+                const percent = (creditsLeft / maxCredits) * 100;
+                document.getElementById('creditsText').innerHTML = `📊 Credits: ${creditsLeft}/${maxCredits}`;
+                document.getElementById('creditFill').style.width = `${percent}%`;
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+        
+        async function checkGmailAuth() {
+            try {
+                const response = await fetch('/check_auth');
+                const data = await response.json();
+                
+                if (data.authorized) {
+                    document.getElementById('authStatusText').innerHTML = '<span class="status-badge status-success">✅ Gmail API Authorized</span>';
+                    document.getElementById('authBtnGroup').style.display = 'none';
+                } else if (data.has_client_secret) {
+                    document.getElementById('authStatusText').innerHTML = '<span class="status-badge status-warning">⚠️ Client secret uploaded. Click Authorize.</span>';
+                    document.getElementById('authBtnGroup').style.display = 'block';
+                } else {
+                    document.getElementById('authStatusText').innerHTML = '<span class="status-badge status-error">❌ Upload client_secret.json first</span>';
+                    document.getElementById('authBtnGroup').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+        
+        function toggleSendMethod() {
+            const method = document.querySelector('input[name="sendMethod"]:checked').value;
+            if (method === 'gmail_api') {
+                document.getElementById('smtpCard').style.display = 'none';
+                document.getElementById('senderEmailGroup').style.display = 'block';
+            } else {
+                document.getElementById('smtpCard').style.display = 'block';
+                document.getElementById('senderEmailGroup').style.display = 'none';
+            }
+        }
+        
+        function toggleBodyType() {
+            const type = document.querySelector('input[name="bodyType"]:checked').value;
+            if (type === 'plain') {
+                document.getElementById('plainBodyGroup').style.display = 'block';
+                document.getElementById('htmlBodyGroup').style.display = 'none';
+            } else {
+                document.getElementById('plainBodyGroup').style.display = 'none';
+                document.getElementById('htmlBodyGroup').style.display = 'block';
+            }
+        }
+        
+        async function uploadClientSecret() {
+            const fileInput = document.getElementById('clientSecretFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                addLog('Please select client_secret.json file', 'error');
+                return;
+            }
+            
+            showLoading(true);
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                const response = await fetch('/upload_client_secret', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    addLog('✅ Client secret uploaded successfully');
+                    checkGmailAuth();
+                } else {
+                    addLog('❌ Error: ' + data.error, 'error');
+                }
+            } catch (error) {
+                addLog('❌ Upload error: ' + error.message, 'error');
+            }
+            showLoading(false);
+        }
+        
+        async function authorizeGmail() {
+            showLoading(true);
+            addLog('🔐 Opening authorization window...');
+            
+            try {
+                const response = await fetch('/authorize_gmail', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    addLog('✅ Gmail authorized successfully!');
+                    checkGmailAuth();
+                } else {
+                    addLog('❌ Authorization failed: ' + data.error, 'error');
+                }
+            } catch (error) {
+                addLog('❌ Error: ' + error.message, 'error');
+            }
+            showLoading(false);
+        }
+        
+        async function uploadAttachments() {
+            const fileInput = document.getElementById('attachmentFile');
+            const files = fileInput.files;
+            
+            if (files.length === 0) {
+                addLog('Please select files to upload', 'error');
+                return;
+            }
+            
+            showLoading(true);
+            
+            for (let i = 0; i < files.length; i++) {
+                const formData = new FormData();
+                formData.append('file', files[i]);
+                
+                try {
+                    const response = await fetch('/upload_attachment', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        attachmentPaths.push(data.path);
+                        addAttachmentToList(files[i].name, data.path);
+                        addLog(`📎 Attachment added: ${files[i].name}`);
+                    } else {
+                        addLog(`❌ Error uploading ${files[i].name}: ${data.error}`, 'error');
+                    }
+                } catch (error) {
+                    addLog(`❌ Error uploading ${files[i].name}: ${error.message}`, 'error');
+                }
+            }
+            
+            showLoading(false);
+            fileInput.value = '';
+        }
+        
+        function addAttachmentToList(filename, filepath) {
+            const list = document.getElementById('attachmentList');
+            const item = document.createElement('div');
+            item.className = 'attachment-item';
+            item.innerHTML = `📎 ${escapeHtml(filename)} <span class="remove-attachment" onclick="removeAttachment(this, '${filepath}')">✖</span>`;
+            list.appendChild(item);
+        }
+        
+        function removeAttachment(element, filepath) {
+            element.parentElement.remove();
+            attachmentPaths = attachmentPaths.filter(p => p !== filepath);
+            addLog(`Removed attachment`);
+        }
+        
+        async function clearAttachments() {
+            try {
+                await fetch('/clear_attachments', { method: 'POST' });
+                attachmentPaths = [];
+                document.getElementById('attachmentList').innerHTML = '';
+                addLog('🗑️ All attachments cleared');
+            } catch (error) {
+                addLog('Error clearing attachments', 'error');
+            }
+        }
+        
+        async function generateRandomName() {
+            try {
+                const response = await fetch('/generate_random_name');
+                const data = await response.json();
+                document.getElementById('senderName').value = data.name;
+                addLog('🎲 Generated random sender name: ' + data.name);
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+        
+        async function uploadEmailFile() {
+            const fileInput = document.getElementById('emailFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                addLog('Please select a file first', 'error');
+                return;
+            }
+            
+            showLoading(true);
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                const response = await fetch('/upload_emails', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                
+                if (data.emails) {
+                    currentEmails = data.emails;
+                    document.getElementById('emailCount').textContent = data.count;
+                    const emailListDiv = document.getElementById('emailList');
+                    emailListDiv.innerHTML = '';
+                    data.emails.slice(0, 50).forEach(email => {
+                        emailListDiv.innerHTML += `<div class="log-entry">📧 ${escapeHtml(email)}</div>`;
+                    });
+                    if (data.count > 50) {
+                        emailListDiv.innerHTML += `<div class="log-entry">... and ${data.count - 50} more</div>`;
+                    }
+                    document.getElementById('emailPreview').style.display = 'block';
+                    addLog(`📂 Loaded ${data.count} email addresses`);
+                } else {
+                    addLog('❌ Error: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                addLog('❌ Upload error: ' + error.message, 'error');
+            }
+            showLoading(false);
+        }
+        
+        async function startSending() {
+            if (!termsAccepted) {
+                addLog('Please accept the Terms and Conditions first', 'error');
+                showTab('terms');
+                return;
+            }
+            
+            if (currentEmails.length === 0) {
+                addLog('Please upload an email list first', 'error');
+                return;
+            }
+            
+            const sendMethod = document.querySelector('input[name="sendMethod"]:checked').value;
+            let senderName, senderEmail, subject, bodyType, plainBody, htmlBody;
+            
+            if (sendMethod === 'gmail_api') {
+                senderName = document.getElementById('senderName').value;
+                senderEmail = document.getElementById('senderEmail').value;
+                if (!senderEmail) {
+                    addLog('Please enter sender email', 'error');
+                    return;
+                }
+                if (!senderName) senderName = senderEmail.split('@')[0];
+            } else {
+                senderName = document.getElementById('smtpSenderName').value;
+                senderEmail = document.getElementById('smtpUsername').value;
+                const smtpPassword = document.getElementById('smtpPassword').value;
+                const smtpHost = document.getElementById('smtpHost').value;
+                
+                if (!senderEmail) {
+                    addLog('Please enter SMTP username/email', 'error');
+                    return;
+                }
+                if (!smtpPassword) {
+                    addLog('Please enter SMTP password', 'error');
+                    return;
+                }
+                if (!smtpHost) {
+                    addLog('Please enter SMTP server', 'error');
+                    return;
+                }
+                if (!senderName) senderName = senderEmail.split('@')[0];
+            }
+            
+            subject = document.getElementById('subject').value;
+            bodyType = document.querySelector('input[name="bodyType"]:checked').value;
+            plainBody = document.getElementById('plainBody').value;
+            htmlBody = document.getElementById('htmlBody').value;
+            
+            if (!subject) {
+                addLog('Please enter a subject', 'error');
+                return;
+            }
+            
+            if ((bodyType === 'plain' && !plainBody) || (bodyType === 'html' && !htmlBody)) {
+                addLog('Please enter email content', 'error');
+                return;
+            }
+            
+            isSending = true;
+            cancelFlag = false;
+            document.getElementById('sendBtn').style.display = 'none';
+            document.getElementById('cancelBtn').style.display = 'inline-block';
+            document.getElementById('progressContainer').style.display = 'block';
+            
+            const totalEmails = currentEmails.length;
+            let sent = 0;
+            let failed = 0;
+            
+            let smtpHost = '', smtpPort = 587, smtpPassword = '';
+            if (sendMethod === 'smtp') {
+                smtpHost = document.getElementById('smtpHost').value;
+                smtpPort = parseInt(document.getElementById('smtpPort').value);
+                smtpPassword = document.getElementById('smtpPassword').value;
+            }
+            
+            for (let i = 0; i < totalEmails; i++) {
+                if (cancelFlag) {
+                    addLog('Sending cancelled by user', 'warning');
+                    break;
+                }
+                
+                updateProgress((i + 1) / totalEmails * 100, `${i+1}/${totalEmails}`);
+                addLog(`📧 Sending to: ${currentEmails[i]}...`);
+                
+                const requestBody = {
+                    emails: [currentEmails[i]],
+                    subject: subject,
+                    body: plainBody,
+                    html_content: htmlBody,
+                    sender_name: senderName,
+                    sender_email: senderEmail,
+                    send_method: sendMethod,
+                    attachments: attachmentPaths
+                };
+                
+                if (sendMethod === 'smtp') {
+                    requestBody.smtp_host = smtpHost;
+                    requestBody.smtp_port = smtpPort;
+                    requestBody.smtp_password = smtpPassword;
+                }
+                
+                try {
+                    const response = await fetch('/send_emails', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(requestBody)
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        sent += data.sent;
+                        failed += data.failed;
+                        if (data.sent > 0) {
+                            addLog(`✅ Sent to ${currentEmails[i]}`);
+                        } else {
+                            const errorMsg = data.failed_emails[0]?.error || 'Unknown error';
+                            addLog(`❌ Failed to ${currentEmails[i]}: ${errorMsg}`, 'error');
+                        }
+                    } else {
+                        failed++;
+                        addLog(`❌ Error: ${data.error}`, 'error');
+                    }
+                } catch (error) {
+                    failed++;
+                    addLog(`❌ Error: ${error.message}`, 'error');
+                }
+                
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+            
+            addLog(`✅ Campaign completed! Sent: ${sent}, Failed: ${failed}`);
+            updateProgress(100, `Complete: ${sent} sent, ${failed} failed`);
+            
+            isSending = false;
+            document.getElementById('sendBtn').style.display = 'inline-block';
+            document.getElementById('cancelBtn').style.display = 'none';
+            loadUserData();
+        }
+        
+        function cancelSending() {
+            cancelFlag = true;
+            addLog('Cancelling...', 'warning');
+        }
+        
+        function updateProgress(percent, text) {
+            const progressBar = document.getElementById('progressBar');
+            progressBar.style.width = `${percent}%`;
+            progressBar.textContent = text || `${Math.round(percent)}%`;
+        }
+        
+        // FIXED: No auto-scrolling - user controls scrolling manually
+        function addLog(message, type = 'info') {
+            const logArea = document.getElementById('logArea');
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            const time = new Date().toLocaleTimeString();
+            logEntry.innerHTML = `<span style="color: #888;">[${time}]</span> ${escapeHtml(message)}`;
+            logArea.appendChild(logEntry);
+            // REMOVED: logEntry.scrollIntoView(); - This was causing auto-scrolling
+        }
+        
+        function clearAll() {
+            document.getElementById('subject').value = '';
+            document.getElementById('plainBody').value = '';
+            document.getElementById('htmlBody').value = '';
+            document.getElementById('emailFile').value = '';
+            document.getElementById('emailPreview').style.display = 'none';
+            currentEmails = [];
+            clearAttachments();
+            addLog('All fields cleared');
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function showLoading(show) {
+            document.getElementById('loadingOverlay').style.display = show ? 'flex' : 'none';
+        }
+        
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+        }
+        
+        function showTab(tab) {
+            document.getElementById('sendTab').style.display = tab === 'send' ? 'block' : 'none';
+            document.getElementById('termsTab').style.display = tab === 'terms' ? 'block' : 'none';
+            document.getElementById('aboutTab').style.display = tab === 'about' ? 'block' : 'none';
+            
+            if (tab === 'terms') loadTerms();
+            
+            if (window.innerWidth <= 768) {
+                document.getElementById('sidebar').classList.remove('open');
+            }
+        }
+        
+        async function loadTerms() {
+            try {
+                const response = await fetch('/get_terms');
+                const data = await response.json();
+                document.getElementById('termsContent').innerHTML = `<p style="white-space: pre-line;">${escapeHtml(data.terms)}</p>`;
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+        
+        async function acceptTerms() {
+            try {
+                const response = await fetch('/accept_terms', { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    termsAccepted = true;
+                    addLog('✅ Terms and Conditions accepted');
+                    showTab('send');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+        
+        function openSpamChecker() {
+            window.open('https://inbox-checker.emailtoolhub.com/', '_blank');
+        }
+        
+        function openGMass() {
+            window.open('https://www.gmass.co/inbox', '_blank');
+        }
+        
+        async function logout() {
+            window.location.href = '/logout';
+        }
+        
+        async function init() {
+            await loadUserData();
+            await generateRandomName();
+            await checkGmailAuth();
+            toggleSendMethod();
+            toggleBodyType();
+        }
+        
+        init();
+    </script>
+</body>
+</html>
