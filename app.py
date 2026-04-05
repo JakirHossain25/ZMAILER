@@ -17,18 +17,16 @@ from datetime import datetime, date, timedelta
 import pickle
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import threading
-import shutil
-from werkzeug.utils import secure_filename
 import mimetypes
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from dotenv import load_dotenv
-import time
 import secrets
+import sqlite3
+from contextlib import contextmanager
 
 # Load environment variables
 load_dotenv()
@@ -42,46 +40,102 @@ app = Flask(__name__)
 
 # Secret Key - Production ready
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
-
-# Configuration
 app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_CONTENT_LENGTH', 100 * 1024 * 1024))
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=int(os.environ.get('SESSION_LIFETIME_HOURS', 24)))
-app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', 'False').lower() == 'true'
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', 'True').lower() == 'true'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
-CORS(app, origins=os.environ.get('CORS_ORIGINS', '*').split(','))
+# CORS configuration
+cors_origins = os.environ.get('CORS_ORIGINS', '*').split(',')
+CORS(app, origins=cors_origins)
+
+# ==================== DATABASE SETUP ====================
+DATABASE_PATH = os.environ.get('DATABASE_PATH', '/app/data/users.db')
+
+def init_database():
+    """Initialize SQLite database with proper schema"""
+    os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
+    
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS premium_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                api_key TEXT UNIQUE NOT NULL,
+                username TEXT NOT NULL,
+                email_limit INTEGER DEFAULT 100000,
+                emails_sent INTEGER DEFAULT 0,
+                last_reset_date TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_active BOOLEAN DEFAULT 1
+            )
+        ''')
+        
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS sending_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                api_key TEXT NOT NULL,
+                recipient_email TEXT NOT NULL,
+                subject TEXT,
+                status TEXT,
+                error_message TEXT,
+                sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_api_key ON premium_users(api_key)
+        ''')
+        
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_logs_api_key ON sending_logs(api_key)
+        ''')
+        
+        conn.commit()
+
+@contextmanager
+def get_db():
+    """Database connection context manager"""
+    conn = sqlite3.connect(DATABASE_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+# Initialize database
+init_database()
 
 # ==================== CONSTANTS ====================
-# Data directory - Render persistent disk or local
-DATA_DIR = os.environ.get('DATA_DIR', '/app/data') if os.environ.get('RENDER') else os.getcwd()
+DATA_DIR = os.environ.get('DATA_DIR', '/app/data')
 os.makedirs(DATA_DIR, exist_ok=True)
 
-CREDITS_FILE = os.path.join(DATA_DIR, 'user_credits.json')
-TOKEN_FILE = os.path.join(DATA_DIR, 'token.pickle')
+TOKEN_FILE = os.path.join(DATA_DIR, 'token.json')
 CLIENT_SECRET_FILE = os.path.join(DATA_DIR, 'client_secret.json')
 
-MAX_EMAILS_PER_DAY = int(os.environ.get('MAX_EMAILS_PER_DAY', 10000))
+MAX_EMAILS_PER_DAY_BASIC = int(os.environ.get('MAX_EMAILS_PER_DAY_BASIC', 2000))
+MAX_EMAILS_PER_DAY_PREMIUM = int(os.environ.get('MAX_EMAILS_PER_DAY_PREMIUM', 100000))
 TEMP_FOLDER = 'temp_attachments'
-UPLOAD_FOLDER = 'uploads'
-MAX_WORKERS = int(os.environ.get('MAX_WORKERS', 5))
-EMAIL_SEND_DELAY = float(os.environ.get('EMAIL_SEND_DELAY', 0.2))
+MAX_WORKERS = int(os.environ.get('MAX_WORKERS', 10))
+EMAIL_SEND_TIMEOUT = int(os.environ.get('EMAIL_SEND_TIMEOUT', 30))
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.modify']
 
-# ==================== USER DATABASE ====================
-VALID_USERS = {}
-users_env = os.environ.get('VALID_USERS', '')
+# Basic users (hardcoded)
+BASIC_USERS = {}
+users_env = os.environ.get('BASIC_USERS', '')
 if users_env:
     for user_entry in users_env.split(','):
         if ':' in user_entry:
-            username, password = user_entry.split(':', 1)
-            VALID_USERS[username.strip()] = password.strip()
+            api_key, username = user_entry.split(':', 1)
+            BASIC_USERS[api_key.strip()] = username.strip()
 else:
-    VALID_USERS = {
-        "Padma": os.environ.get('PADMA_PASSWORD', "pd1234#"),
-        "Jamuna": os.environ.get('JAMUNA_PASSWORD', "jm809"),
-        "Brahmputra": os.environ.get('BRAHMPUTRA_PASSWORD', "Br123@")
+    # Default basic users
+    BASIC_USERS = {
+        "basic_padma_2024": "Padma",
+        "basic_jamuna_2024": "Jamuna",
+        "basic_brahmputra_2024": "Brahmputra"
     }
 
 DEVELOPER_NAME = os.environ.get('DEVELOPER_NAME', "MD. JAKIR HOSSAIN")
@@ -101,8 +155,95 @@ TERMS = """ZMALER - TERMS AND CONDITIONS OF USE:
 10. Violation of these terms will result in immediate account termination."""
 
 # Create necessary folders
-for folder in [TEMP_FOLDER, UPLOAD_FOLDER, 'templates']:
+for folder in [TEMP_FOLDER, 'templates']:
     os.makedirs(folder, exist_ok=True)
+
+# ==================== USER MANAGEMENT ====================
+
+def get_user_type(api_key):
+    """Determine user type and return user info"""
+    # Check basic users first
+    if api_key in BASIC_USERS:
+        return {
+            'type': 'basic',
+            'api_key': api_key,
+            'username': BASIC_USERS[api_key],
+            'limit': MAX_EMAILS_PER_DAY_BASIC
+        }
+    
+    # Check premium users in database
+    try:
+        with get_db() as conn:
+            user = conn.execute(
+                'SELECT * FROM premium_users WHERE api_key = ? AND is_active = 1',
+                (api_key,)
+            ).fetchone()
+            
+            if user:
+                # Reset counter if new day
+                today = str(date.today())
+                if user['last_reset_date'] != today:
+                    conn.execute(
+                        'UPDATE premium_users SET emails_sent = 0, last_reset_date = ? WHERE api_key = ?',
+                        (today, api_key)
+                    )
+                    emails_sent = 0
+                else:
+                    emails_sent = user['emails_sent']
+                
+                return {
+                    'type': 'premium',
+                    'api_key': api_key,
+                    'username': user['username'],
+                    'limit': user['email_limit'],
+                    'emails_sent': emails_sent,
+                    'user_id': user['id']
+                }
+    except Exception as e:
+        logger.error(f"Database error: {e}")
+    
+    return None
+
+def check_and_update_limit(api_key, email_count):
+    """Check if user can send emails and update count"""
+    user_info = get_user_type(api_key)
+    
+    if not user_info:
+        return {'allowed': False, 'error': 'Invalid or inactive API key'}
+    
+    current_sent = user_info.get('emails_sent', 0)
+    user_limit = user_info['limit']
+    
+    if current_sent + email_count > user_limit:
+        return {
+            'allowed': False,
+            'error': f'Daily limit exceeded. You have {user_limit - current_sent} emails left today.'
+        }
+    
+    # Update sent count for premium users
+    if user_info['type'] == 'premium':
+        try:
+            with get_db() as conn:
+                conn.execute(
+                    'UPDATE premium_users SET emails_sent = emails_sent + ? WHERE api_key = ?',
+                    (email_count, api_key)
+                )
+        except Exception as e:
+            logger.error(f"Failed to update email count: {e}")
+    
+    return {'allowed': True, 'user_info': user_info}
+
+def log_email_sent(api_key, recipient_email, subject, status, error_message=None):
+    """Log email sending attempt"""
+    try:
+        with get_db() as conn:
+            conn.execute(
+                '''INSERT INTO sending_logs (api_key, recipient_email, subject, status, error_message)
+                   VALUES (?, ?, ?, ?, ?)''',
+                (api_key, recipient_email, subject, status, error_message)
+            )
+    except Exception as e:
+        logger.error(f"Failed to log email: {e}")
 
 # ==================== HELPER FUNCTIONS ====================
 
@@ -112,46 +253,6 @@ def generate_random_filename(extension=''):
 
 def generate_random_bill_number():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=13))
-
-def load_users():
-    today = str(date.today())
-    try:
-        if os.path.exists(CREDITS_FILE):
-            with open(CREDITS_FILE, "r") as f:
-                data = json.load(f)
-                for user, info in data.items():
-                    if info.get("last_date") != today:
-                        info["credits_used"] = 0
-                        info["last_date"] = today
-                return data
-    except Exception as e:
-        logger.error(f"Error loading users: {e}")
-    
-    data = {}
-    for user, password in VALID_USERS.items():
-        data[user] = {
-            "password": password, 
-            "credits_used": 0, 
-            "last_date": today
-        }
-    
-    try:
-        with open(CREDITS_FILE, "w") as f:
-            json.dump(data, f)
-    except Exception as e:
-        logger.error(f"Error saving users: {e}")
-    return data
-
-users = load_users()
-
-def save_users():
-    try:
-        with open(CREDITS_FILE, "w") as f:
-            json.dump(users, f)
-        return True
-    except Exception as e:
-        logger.error(f"Error saving users: {e}")
-        return False
 
 def generate_random_name():
     first_names = ["James", "John", "Robert", "Michael", "William", "David", "Richard", "Joseph", "Thomas", "Charles",
@@ -227,11 +328,11 @@ def send_via_smtp(sender_email, sender_password, smtp_host, smtp_port, to_email,
                     logger.error(f"Error attaching {file_path}: {e}")
         
         if smtp_port == 465:
-            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30) as server:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=EMAIL_SEND_TIMEOUT) as server:
                 server.login(sender_email, sender_password)
                 server.send_message(msg)
         else:
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=EMAIL_SEND_TIMEOUT) as server:
                 server.starttls()
                 server.login(sender_email, sender_password)
                 server.send_message(msg)
@@ -301,7 +402,7 @@ def send_via_gmail_api(service, sender_name, sender_email, to_email, subject, bo
         return False, str(e)
 
 def get_gmail_service():
-    """Get Gmail API service - Server compatible (No local browser)"""
+    """Get Gmail API service using token.json (server compatible)"""
     if not os.path.exists(CLIENT_SECRET_FILE):
         logger.warning("Client secret file not found")
         return None
@@ -309,23 +410,24 @@ def get_gmail_service():
     creds = None
     if os.path.exists(TOKEN_FILE):
         try:
-            with open(TOKEN_FILE, 'rb') as token:
-                creds = pickle.load(token)
+            creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
         except Exception as e:
-            logger.error(f"Error loading token: {e}")
+            logger.error(f"Error loading token.json: {e}")
+            return None
     
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             try:
                 creds.refresh(Request())
+                # Save refreshed credentials
+                with open(TOKEN_FILE, 'w') as token:
+                    token.write(creds.to_json())
                 logger.info("Token refreshed successfully")
-                with open(TOKEN_FILE, 'wb') as token:
-                    pickle.dump(creds, token)
             except Exception as e:
                 logger.error(f"Error refreshing token: {e}")
                 return None
         else:
-            logger.error("No valid credentials found. Please upload token.pickle generated locally.")
+            logger.error("No valid credentials found. Please upload token.json generated locally.")
             return None
     
     return build('gmail', 'v1', credentials=creds)
@@ -370,166 +472,212 @@ def send_single_email(email_data):
 
 @app.route('/')
 def index():
-    return render_template('login.html')
+    try:
+        return render_template('login.html')
+    except Exception as e:
+        logger.error(f"Index error: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/login', methods=['POST'])
 def login():
     try:
         data = request.get_json()
         if not data:
-            return jsonify({'success': False, 'message': 'Invalid request'})
+            return jsonify({'success': False, 'message': 'Invalid request'}), 400
         
-        username = data.get('username', '').strip()
-        password = data.get('password', '')
+        api_key = data.get('api_key', '').strip()
         
-        if username in VALID_USERS and VALID_USERS[username] == password:
+        if not api_key:
+            return jsonify({'success': False, 'message': 'API key is required'}), 400
+        
+        user_info = get_user_type(api_key)
+        
+        if user_info:
             session.clear()
-            session['username'] = username
+            session['api_key'] = api_key
+            session['username'] = user_info['username']
+            session['user_type'] = user_info['type']
             session['logged_in'] = True
             session['terms_accepted'] = False
             session.permanent = True
-            return jsonify({'success': True, 'message': 'Login successful'})
+            return jsonify({'success': True, 'message': 'Login successful', 'user_type': user_info['type']})
         
-        return jsonify({'success': False, 'message': 'Invalid username or password'})
+        return jsonify({'success': False, 'message': 'Invalid API key'}), 401
+        
     except Exception as e:
         logger.error(f"Login error: {e}")
-        return jsonify({'success': False, 'message': str(e)})
+        return jsonify({'success': False, 'message': 'Internal server error'}), 500
 
 @app.route('/logout')
 def logout():
-    session.clear()
-    return redirect(url_for('index'))
+    try:
+        session.clear()
+        return redirect(url_for('index'))
+    except Exception as e:
+        logger.error(f"Logout error: {e}")
+        return redirect(url_for('index'))
 
 @app.route('/dashboard')
 def dashboard():
-    if 'username' not in session:
+    try:
+        if 'api_key' not in session:
+            return redirect(url_for('index'))
+        return render_template('dashboard.html')
+    except Exception as e:
+        logger.error(f"Dashboard error: {e}")
         return redirect(url_for('index'))
-    return render_template('dashboard.html')
 
 @app.route('/get_user_data')
 def get_user_data():
-    if 'username' not in session:
-        return jsonify({'error': 'Not logged in'})
-    
-    username = session['username']
-    credits_used = users.get(username, {}).get('credits_used', 0)
-    return jsonify({
-        'username': username,
-        'credits_used': credits_used,
-        'credits_left': MAX_EMAILS_PER_DAY - credits_used,
-        'max_credits': MAX_EMAILS_PER_DAY,
-        'developer_name': DEVELOPER_NAME,
-        'whatsapp_number': WHATSAPP_NUMBER
-    })
+    try:
+        if 'api_key' not in session:
+            return jsonify({'error': 'Not logged in'}), 401
+        
+        api_key = session['api_key']
+        user_info = get_user_type(api_key)
+        
+        if not user_info:
+            return jsonify({'error': 'User not found'}), 404
+        
+        emails_sent = user_info.get('emails_sent', 0)
+        user_limit = user_info['limit']
+        
+        return jsonify({
+            'success': True,
+            'username': user_info['username'],
+            'user_type': user_info['type'],
+            'emails_sent': emails_sent,
+            'emails_left': user_limit - emails_sent,
+            'max_limit': user_limit,
+            'developer_name': DEVELOPER_NAME,
+            'whatsapp_number': WHATSAPP_NUMBER
+        })
+        
+    except Exception as e:
+        logger.error(f"Get user data error: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/get_terms')
 def get_terms():
-    return jsonify({'terms': TERMS})
+    try:
+        return jsonify({'terms': TERMS})
+    except Exception as e:
+        logger.error(f"Get terms error: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/accept_terms', methods=['POST'])
 def accept_terms():
-    if 'username' in session:
-        session['terms_accepted'] = True
-        return jsonify({'success': True})
-    return jsonify({'success': False})
+    try:
+        if 'api_key' in session:
+            session['terms_accepted'] = True
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': 'Not logged in'}), 401
+    except Exception as e:
+        logger.error(f"Accept terms error: {e}")
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 @app.route('/check_auth')
 def check_auth():
-    if 'username' not in session:
-        return jsonify({'authorized': False, 'logged_in': False})
-    
-    service = get_gmail_service()
-    has_secret = os.path.exists(CLIENT_SECRET_FILE)
-    
-    if service:
-        return jsonify({'authorized': True, 'has_client_secret': has_secret})
-    return jsonify({'authorized': False, 'has_client_secret': has_secret})
+    try:
+        if 'api_key' not in session:
+            return jsonify({'authorized': False, 'logged_in': False})
+        
+        service = get_gmail_service()
+        has_secret = os.path.exists(CLIENT_SECRET_FILE)
+        has_token = os.path.exists(TOKEN_FILE)
+        
+        if service:
+            return jsonify({
+                'authorized': True,
+                'has_client_secret': has_secret,
+                'has_token': has_token
+            })
+        return jsonify({
+            'authorized': False,
+            'has_client_secret': has_secret,
+            'has_token': has_token
+        })
+        
+    except Exception as e:
+        logger.error(f"Check auth error: {e}")
+        return jsonify({'authorized': False, 'error': str(e)}), 500
 
 @app.route('/upload_client_secret', methods=['POST'])
 def upload_client_secret():
-    if 'username' not in session:
-        return jsonify({'error': 'Not logged in'})
-    
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file uploaded'})
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No file selected'})
-    
     try:
-        if os.path.exists(CLIENT_SECRET_FILE):
-            os.remove(CLIENT_SECRET_FILE)
-        if os.path.exists(TOKEN_FILE):
-            os.remove(TOKEN_FILE)
+        if 'api_key' not in session:
+            return jsonify({'error': 'Not logged in'}), 401
+        
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not file.filename.endswith('.json'):
+            return jsonify({'error': 'File must be a JSON file'}), 400
         
         file.save(CLIENT_SECRET_FILE)
-        return jsonify({'success': True, 'message': 'Client secret uploaded'})
+        return jsonify({'success': True, 'message': 'Client secret uploaded successfully'})
+        
     except Exception as e:
-        logger.error(f"Upload error: {e}")
-        return jsonify({'error': str(e)})
-
-@app.route('/authorize_gmail', methods=['POST'])
-def authorize_gmail():
-    if 'username' not in session:
-        return jsonify({'error': 'Not logged in'})
-    
-    if not os.path.exists(CLIENT_SECRET_FILE):
-        return jsonify({'error': 'Upload client_secret.json first'})
-    
-    return jsonify({
-        'error': 'OAuth flow must be completed on a local machine. Please generate token.pickle locally and upload it via /upload_token endpoint.'
-    })
+        logger.error(f"Upload client secret error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/upload_token', methods=['POST'])
 def upload_token():
-    """Upload pre-generated token.pickle file"""
-    if 'username' not in session:
-        return jsonify({'error': 'Not logged in'})
-    
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file uploaded'})
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No file selected'})
-    
-    if not file.filename.endswith('.pickle'):
-        return jsonify({'error': 'File must be a .pickle file'})
-    
     try:
-        if os.path.exists(TOKEN_FILE):
-            os.remove(TOKEN_FILE)
+        if 'api_key' not in session:
+            return jsonify({'error': 'Not logged in'}), 401
         
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not file.filename.endswith('.json'):
+            return jsonify({'error': 'File must be a JSON file'}), 400
+        
+        # Save token file
         file.save(TOKEN_FILE)
         
         # Validate token
         try:
-            with open(TOKEN_FILE, 'rb') as f:
-                creds = pickle.load(f)
-            return jsonify({'success': True, 'message': 'Token uploaded successfully'})
+            creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+            return jsonify({'success': True, 'message': 'Token uploaded and validated successfully'})
         except Exception as e:
             os.remove(TOKEN_FILE)
-            return jsonify({'error': f'Invalid token file: {str(e)}'})
+            return jsonify({'error': f'Invalid token file: {str(e)}'}), 400
         
     except Exception as e:
-        logger.error(f"Token upload error: {e}")
-        return jsonify({'error': str(e)})
+        logger.error(f"Upload token error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/send_emails', methods=['POST'])
 def send_emails():
-    if 'username' not in session:
-        return jsonify({'success': False, 'error': 'Not logged in'})
-    
-    if not session.get('terms_accepted', False):
-        return jsonify({'success': False, 'error': 'Please accept Terms and Conditions first'})
-    
     try:
+        if 'api_key' not in session:
+            return jsonify({'success': False, 'error': 'Not logged in'}), 401
+        
+        if not session.get('terms_accepted', False):
+            return jsonify({'success': False, 'error': 'Please accept Terms and Conditions first'}), 400
+        
         data = request.get_json()
         if not data:
-            return jsonify({'success': False, 'error': 'Invalid request'})
+            return jsonify({'success': False, 'error': 'Invalid request'}), 400
         
         emails = data.get('emails', [])
+        if not emails:
+            return jsonify({'success': False, 'error': 'No recipients provided'}), 400
+        
+        # Check user limit
+        limit_check = check_and_update_limit(session['api_key'], len(emails))
+        if not limit_check['allowed']:
+            return jsonify({'success': False, 'error': limit_check['error']}), 429
+        
         subject = data.get('subject', '')
         body = data.get('body', '')
         html_content = data.get('html_content', '')
@@ -542,24 +690,18 @@ def send_emails():
         smtp_port = data.get('smtp_port', 587)
         smtp_password = data.get('smtp_password', '')
         
-        if not emails:
-            return jsonify({'success': False, 'error': 'No recipients provided'})
-        
+        # Generate random name if not provided
         if not sender_name or sender_name.strip() == '':
             sender_name = generate_random_name()
         
-        username = session['username']
-        credits_used = users.get(username, {}).get('credits_used', 0)
-        
-        if credits_used + len(emails) > MAX_EMAILS_PER_DAY:
-            return jsonify({'success': False, 'error': f'Daily limit exceeded. You have {MAX_EMAILS_PER_DAY - credits_used} left.'})
-        
+        # Setup Gmail service if needed
         gmail_service = None
         if send_method == 'gmail_api':
             gmail_service = get_gmail_service()
             if not gmail_service:
-                return jsonify({'success': False, 'error': 'Gmail API not authorized. Please upload token.pickle file.'})
+                return jsonify({'success': False, 'error': 'Gmail API not authorized. Please upload token.json file.'}), 400
         
+        # Prepare email tasks
         email_tasks = []
         for email in emails:
             processed_subject = replace_placeholders(subject, email)
@@ -583,6 +725,7 @@ def send_emails():
                 'smtp_password': smtp_password
             })
         
+        # Send emails in parallel
         success_count = 0
         failure_count = 0
         failed_emails = []
@@ -594,39 +737,38 @@ def send_emails():
                 success, email, message = future.result()
                 if success:
                     success_count += 1
+                    log_email_sent(session['api_key'], email, subject, 'success')
                 else:
                     failure_count += 1
                     failed_emails.append({'email': email, 'error': message})
-                
-                if EMAIL_SEND_DELAY > 0:
-                    time.sleep(EMAIL_SEND_DELAY)
+                    log_email_sent(session['api_key'], email, subject, 'failed', message)
         
-        users[username]["credits_used"] = credits_used + success_count
-        save_users()
-        
+        # Return response
         return jsonify({
             'success': True,
             'sent': success_count,
             'failed': failure_count,
-            'failed_emails': failed_emails
+            'failed_emails': failed_emails,
+            'total': len(emails)
         })
+        
     except Exception as e:
         logger.error(f"Send emails error: {e}")
-        return jsonify({'success': False, 'error': str(e)})
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/upload_emails', methods=['POST'])
 def upload_emails():
-    if 'username' not in session:
-        return jsonify({'error': 'Not logged in'})
-    
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file uploaded'})
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No file selected'})
-    
     try:
+        if 'api_key' not in session:
+            return jsonify({'error': 'Not logged in'}), 401
+        
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
         content = file.read().decode('utf-8', errors='ignore')
         lines = content.split('\n')
         emails = []
@@ -637,40 +779,38 @@ def upload_emails():
             found_emails = re.findall(email_pattern, line)
             emails.extend(found_emails)
         
-        unique_emails = []
-        seen = set()
-        for email in emails:
-            if email not in seen:
-                seen.add(email)
-                unique_emails.append(email)
+        # Remove duplicates
+        unique_emails = list(dict.fromkeys(emails))
         
         return jsonify({'emails': unique_emails, 'count': len(unique_emails)})
+        
     except Exception as e:
         logger.error(f"Upload emails error: {e}")
-        return jsonify({'error': str(e)})
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/upload_attachment', methods=['POST'])
 def upload_attachment():
-    if 'username' not in session:
-        return jsonify({'error': 'Not logged in'})
-    
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file uploaded'})
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No file selected'})
-    
     try:
+        if 'api_key' not in session:
+            return jsonify({'error': 'Not logged in'}), 401
+        
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
         file_ext = os.path.splitext(file.filename)[1].lower()
         random_filename = generate_random_filename(file_ext)
         filepath = os.path.join(TEMP_FOLDER, random_filename)
         file.save(filepath)
         
         return jsonify({'success': True, 'filename': file.filename, 'path': filepath})
+        
     except Exception as e:
         logger.error(f"Upload attachment error: {e}")
-        return jsonify({'error': str(e)})
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/clear_attachments', methods=['POST'])
 def clear_attachments():
@@ -684,62 +824,81 @@ def clear_attachments():
                 except Exception:
                     pass
         return jsonify({'success': True})
+        
     except Exception as e:
         logger.error(f"Clear attachments error: {e}")
-        return jsonify({'error': str(e)})
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/generate_random_name')
 def generate_random_name_route():
-    return jsonify({'name': generate_random_name()})
+    try:
+        return jsonify({'name': generate_random_name()})
+    except Exception as e:
+        logger.error(f"Generate random name error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/spam_check')
 def spam_check():
-    return jsonify({'url': 'https://inbox-checker.emailtoolhub.com/'})
+    try:
+        return jsonify({'url': 'https://inbox-checker.emailtoolhub.com/'})
+    except Exception as e:
+        logger.error(f"Spam check error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/gmass_inbox')
 def gmass_inbox():
-    return jsonify({'url': 'https://www.gmass.co/inbox'})
+    try:
+        return jsonify({'url': 'https://www.gmass.co/inbox'})
+    except Exception as e:
+        logger.error(f"GMass inbox error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/health')
 def health():
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
-        'version': '1.0.0'
-    })
+    try:
+        return jsonify({
+            'status': 'healthy',
+            'timestamp': datetime.now().isoformat(),
+            'version': '2.0.0'
+        })
+    except Exception as e:
+        return jsonify({'status': 'unhealthy', 'error': str(e)}), 500
 
 # ==================== CLEANUP ====================
 def cleanup_old_files():
+    """Clean up old temporary files"""
     while True:
         try:
             now = time.time()
-            for folder in [TEMP_FOLDER, UPLOAD_FOLDER]:
-                if os.path.exists(folder):
-                    for filename in os.listdir(folder):
-                        filepath = os.path.join(folder, filename)
-                        if os.path.isfile(filepath):
-                            if now - os.path.getmtime(filepath) > 3600:
-                                os.unlink(filepath)
+            if os.path.exists(TEMP_FOLDER):
+                for filename in os.listdir(TEMP_FOLDER):
+                    filepath = os.path.join(TEMP_FOLDER, filename)
+                    if os.path.isfile(filepath):
+                        if now - os.path.getmtime(filepath) > 3600:  # 1 hour
+                            os.unlink(filepath)
             time.sleep(3600)
         except Exception as e:
             logger.error(f"Cleanup error: {e}")
             time.sleep(3600)
 
+# Start cleanup thread
 cleanup_thread = threading.Thread(target=cleanup_old_files, daemon=True)
 cleanup_thread.start()
 
+# ==================== MAIN ====================
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     host = os.environ.get('HOST', '0.0.0.0')
     debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
     
     print("=" * 70)
-    print(" ZMALER - Professional Email Marketing Platform")
+    print(" ZMALER - Professional Email Marketing Platform v2.0")
     print("=" * 70)
     print(f"\n🌐 Server running on {host}:{port}")
     print(f"🔧 Debug mode: {debug}")
     print(f"⚡ Max workers: {MAX_WORKERS}")
-    print(f"📧 Max emails/day: {MAX_EMAILS_PER_DAY}")
+    print(f"📧 Basic user limit: {MAX_EMAILS_PER_DAY_BASIC}/day")
+    print(f"⭐ Premium user limit: {MAX_EMAILS_PER_DAY_PREMIUM}/day")
     print("\n" + "=" * 70)
     
     app.run(host=host, port=port, debug=debug, threaded=True)

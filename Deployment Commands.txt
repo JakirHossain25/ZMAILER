@@ -1,0 +1,19 @@
+# 1. Push code to GitHub
+git init
+git add .
+git commit -m "Initial commit"
+git branch -M main
+git remote add origin https://github.com/yourusername/zmaler-email-platform.git
+git push -u origin main
+
+# 2. Deploy on Render
+# - Go to render.com
+# - Click "New +" → "Blueprint"
+# - Connect your GitHub repository
+# - Select the branch (main)
+# - Click "Apply"
+
+# 3. Add persistent disk in Render dashboard
+# - Go to your service
+# - Click "Disks"
+# - Add disk: mount path /app/data, size 10GB

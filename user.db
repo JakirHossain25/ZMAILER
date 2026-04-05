@@ -1,0 +1,27 @@
+-- premium_users table
+CREATE TABLE premium_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    api_key TEXT UNIQUE NOT NULL,
+    username TEXT NOT NULL,
+    email_limit INTEGER DEFAULT 100000,
+    emails_sent INTEGER DEFAULT 0,
+    last_reset_date TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT 1
+);
+
+-- sending_logs table
+CREATE TABLE sending_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    api_key TEXT NOT NULL,
+    recipient_email TEXT NOT NULL,
+    subject TEXT,
+    status TEXT,
+    error_message TEXT,
+    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for performance
+CREATE INDEX idx_api_key ON premium_users(api_key);
+CREATE INDEX idx_logs_api_key ON sending_logs(api_key);
+CREATE INDEX idx_logs_sent_at ON sending_logs(sent_at);

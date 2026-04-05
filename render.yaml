@@ -1,28 +1,32 @@
 services:
   - type: web
-    name: zmaler-email-marketing
+    name: zmaler-email-platform
     runtime: python
+    repo: https://github.com/yourusername/zmaler-email-platform
     plan: starter
-    region: singapore
+    region: oregon
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --workers 2 --threads 2 --timeout 120
+    startCommand: gunicorn app:app --workers 4 --threads 2 --timeout 120 --bind 0.0.0.0:$PORT
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
       - key: SECRET_KEY
         generateValue: true
       - key: FLASK_DEBUG
         value: false
+      - key: DATABASE_PATH
+        value: /app/data/users.db
+      - key: DATA_DIR
+        value: /app/data
       - key: MAX_WORKERS
-        value: 5
-      - key: MAX_EMAILS_PER_DAY
-        value: 10000
-      - key: VALID_USERS
-        value: Padma:pd1234#,Jamuna:jm809,Brahmputra:Br123@
-      - key: RENDER
-        value: true
-      - key: PYTHON_VERSION
-        value: 3.11.0
-    
+        value: 10
+      - key: MAX_EMAILS_PER_DAY_BASIC
+        value: 2000
+      - key: MAX_EMAILS_PER_DAY_PREMIUM
+        value: 100000
+      - key: EMAIL_SEND_TIMEOUT
+        value: 30
     disk:
-      name: zmaler-data
+      name: data
       mountPath: /app/data
-      sizeGB: 1
+      sizeGB: 10

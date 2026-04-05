@@ -1,25 +1,29 @@
-# Flask Configuration
-SECRET_KEY=your-super-secret-key-change-this-in-production
+# Security
+SECRET_KEY=your-secret-key-here-change-in-production
 FLASK_DEBUG=False
-HOST=0.0.0.0
-PORT=5000
 
-# Email Configuration
-MAX_EMAILS_PER_DAY=10000
-MAX_WORKERS=5
-EMAIL_SEND_DELAY=0.2
-SESSION_LIFETIME_HOURS=24
+# User Limits
+MAX_EMAILS_PER_DAY_BASIC=2000
+MAX_EMAILS_PER_DAY_PREMIUM=100000
 
-# User Credentials (format: username:password,username2:password2)
-VALID_USERS=Padma:pd1234#,Jamuna:jm809,Brahmputra:Br123@
+# Performance
+MAX_WORKERS=10
+EMAIL_SEND_TIMEOUT=30
+
+# Basic Users (api_key:username)
+BASIC_USERS=basic_padma_2024:Padma,basic_jamuna_2024:Jamuna,basic_brahmputra_2024:Brahmputra
 
 # Developer Info
 DEVELOPER_NAME=MD. JAKIR HOSSAIN
 WHATSAPP_NUMBER=+8801307731628
 
+# Database
+DATABASE_PATH=/app/data/users.db
+DATA_DIR=/app/data
+
 # CORS
 CORS_ORIGINS=*
 
 # Render specific
-RENDER=true
-DATA_DIR=/app/data
+PORT=5000
+HOST=0.0.0.0
