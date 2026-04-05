@@ -1,0 +1,25 @@
+# Flask Configuration
+SECRET_KEY=your-super-secret-key-change-this-in-production
+FLASK_DEBUG=False
+HOST=0.0.0.0
+PORT=5000
+
+# Email Configuration
+MAX_EMAILS_PER_DAY=10000
+MAX_WORKERS=5
+EMAIL_SEND_DELAY=0.2
+SESSION_LIFETIME_HOURS=24
+
+# User Credentials (format: username:password,username2:password2)
+VALID_USERS=Padma:pd1234#,Jamuna:jm809,Brahmputra:Br123@
+
+# Developer Info
+DEVELOPER_NAME=MD. JAKIR HOSSAIN
+WHATSAPP_NUMBER=+8801307731628
+
+# CORS
+CORS_ORIGINS=*
+
+# Render specific
+RENDER=true
+DATA_DIR=/app/data

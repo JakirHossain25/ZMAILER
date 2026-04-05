@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: zmaler-email-marketing
+    runtime: python
+    plan: starter
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 2 --threads 2 --timeout 120
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: FLASK_DEBUG
+        value: false
+      - key: MAX_WORKERS
+        value: 5
+      - key: MAX_EMAILS_PER_DAY
+        value: 10000
+      - key: VALID_USERS
+        value: Padma:pd1234#,Jamuna:jm809,Brahmputra:Br123@
+      - key: RENDER
+        value: true
+      - key: PYTHON_VERSION
+        value: 3.11.0
+    
+    disk:
+      name: zmaler-data
+      mountPath: /app/data
+      sizeGB: 1

@@ -1,6 +1,5 @@
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from flask_cors import CORS
-from flask_session import Session
 import json
 import os
 import base64
@@ -18,22 +17,18 @@ from datetime import datetime, date, timedelta
 import pickle
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
+from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import threading
-import queue
 import shutil
 from werkzeug.utils import secure_filename
 import mimetypes
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from dotenv import load_dotenv
-import redis
-from functools import wraps
 import time
 import secrets
-from pathlib import Path
 
 # Load environment variables
 load_dotenv()
@@ -42,36 +37,39 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ==================== CONFIGURATION ====================
+# ==================== APP INITIALIZATION ====================
 app = Flask(__name__)
+
+# Secret Key - Production ready
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
+
+# Configuration
 app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_CONTENT_LENGTH', 100 * 1024 * 1024))
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=int(os.environ.get('SESSION_LIFETIME_HOURS', 24)))
-
-# Session configuration for production
-app.config['SESSION_TYPE'] = 'filesystem'
-app.config['SESSION_PERMANENT'] = True
-Session(app)
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', 'False').lower() == 'true'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 CORS(app, origins=os.environ.get('CORS_ORIGINS', '*').split(','))
 
 # ==================== CONSTANTS ====================
-CREDITS_FILE = os.environ.get('CREDITS_FILE', 'user_credits.json')
-MAX_EMAILS_PER_DAY = int(os.environ.get('MAX_EMAILS_PER_DAY', 10000))
-TOKEN_FILE = os.environ.get('TOKEN_FILE', 'token.pickle')
-CLIENT_SECRET_FILE = os.environ.get('CLIENT_SECRET_FILE', 'client_secret.json')
-TEMP_FOLDER = os.environ.get('TEMP_FOLDER', 'temp_attachments')
-UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', 'uploads')
-MAX_WORKERS = int(os.environ.get('MAX_WORKERS', 10))
-EMAIL_SEND_DELAY = float(os.environ.get('EMAIL_SEND_DELAY', 0.1))
+# Data directory - Render persistent disk or local
+DATA_DIR = os.environ.get('DATA_DIR', '/app/data') if os.environ.get('RENDER') else os.getcwd()
+os.makedirs(DATA_DIR, exist_ok=True)
 
-# Email queue for background processing
-email_queue = queue.Queue()
-executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+CREDITS_FILE = os.path.join(DATA_DIR, 'user_credits.json')
+TOKEN_FILE = os.path.join(DATA_DIR, 'token.pickle')
+CLIENT_SECRET_FILE = os.path.join(DATA_DIR, 'client_secret.json')
+
+MAX_EMAILS_PER_DAY = int(os.environ.get('MAX_EMAILS_PER_DAY', 10000))
+TEMP_FOLDER = 'temp_attachments'
+UPLOAD_FOLDER = 'uploads'
+MAX_WORKERS = int(os.environ.get('MAX_WORKERS', 5))
+EMAIL_SEND_DELAY = float(os.environ.get('EMAIL_SEND_DELAY', 0.2))
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.modify']
 
-# User Database from environment
+# ==================== USER DATABASE ====================
 VALID_USERS = {}
 users_env = os.environ.get('VALID_USERS', '')
 if users_env:
@@ -80,7 +78,6 @@ if users_env:
             username, password = user_entry.split(':', 1)
             VALID_USERS[username.strip()] = password.strip()
 else:
-    # Default users for testing (should be overridden in production)
     VALID_USERS = {
         "Padma": os.environ.get('PADMA_PASSWORD', "pd1234#"),
         "Jamuna": os.environ.get('JAMUNA_PASSWORD', "jm809"),
@@ -104,22 +101,19 @@ TERMS = """ZMALER - TERMS AND CONDITIONS OF USE:
 10. Violation of these terms will result in immediate account termination."""
 
 # Create necessary folders
-for folder in [TEMP_FOLDER, UPLOAD_FOLDER, "templates", "instance/flask_session"]:
+for folder in [TEMP_FOLDER, UPLOAD_FOLDER, 'templates']:
     os.makedirs(folder, exist_ok=True)
 
 # ==================== HELPER FUNCTIONS ====================
 
 def generate_random_filename(extension=''):
-    """Generate random filename"""
     random_string = ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
     return f"{random_string}{extension}"
 
 def generate_random_bill_number():
-    """Generate random bill number"""
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=13))
 
 def load_users():
-    """Load user credits from file with automatic reset"""
     today = str(date.today())
     try:
         if os.path.exists(CREDITS_FILE):
@@ -151,7 +145,6 @@ def load_users():
 users = load_users()
 
 def save_users():
-    """Save user credits to file"""
     try:
         with open(CREDITS_FILE, "w") as f:
             json.dump(users, f)
@@ -161,19 +154,13 @@ def save_users():
         return False
 
 def generate_random_name():
-    """Generate random sender name"""
-    first_names = ["James", "John", "Robert", "Michael", "William", "David", "Richard", "Joseph", "Thomas", "Charles", 
-                   "Daniel", "Matthew", "Anthony", "Mark", "Donald", "Christopher", "Paul", "Andrew", "Joshua", "Kevin",
-                   "Brian", "George", "Edward", "Ronald", "Timothy", "Jason", "Jeffrey", "Ryan", "Jacob", "Gary",
+    first_names = ["James", "John", "Robert", "Michael", "William", "David", "Richard", "Joseph", "Thomas", "Charles",
                    "Mohammad", "Abdul", "Rahman", "Karim", "Hasan", "Hossain", "Islam", "Ahmed"]
-    last_names = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez",
-                  "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin",
-                  "Lee", "Perez", "Thompson", "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson",
+    last_names = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis",
                   "Khan", "Rahman", "Hossain", "Islam", "Ahmed", "Ali", "Hasan"]
     return f"{random.choice(first_names)} {random.choice(last_names)}"
 
 def replace_placeholders(text, email, custom_data=None):
-    """Replace all placeholders in text with actual values"""
     if not text:
         return text
     
@@ -204,7 +191,6 @@ def replace_placeholders(text, email, custom_data=None):
     return text
 
 def send_via_smtp(sender_email, sender_password, smtp_host, smtp_port, to_email, subject, body, html_body, attachments, sender_name):
-    """Send email via SMTP"""
     try:
         msg = MIMEMultipart('mixed')
         
@@ -220,10 +206,10 @@ def send_via_smtp(sender_email, sender_password, smtp_host, smtp_port, to_email,
         msg['To'] = to_email
         msg['Subject'] = Header(subject or '', 'utf-8').encode()
         
-        if body:
-            msg.attach(MIMEText(body, 'plain', 'utf-8'))
         if html_body:
             msg.attach(MIMEText(html_body, 'html', 'utf-8'))
+        elif body:
+            msg.attach(MIMEText(body, 'plain', 'utf-8'))
         
         for file_path in attachments:
             if os.path.exists(file_path):
@@ -234,7 +220,6 @@ def send_via_smtp(sender_email, sender_password, smtp_host, smtp_port, to_email,
                         part = MIMEBase(main_type, sub_type)
                         part.set_payload(f.read())
                         encoders.encode_base64(part)
-                        
                         filename = os.path.basename(file_path)
                         part.add_header('Content-Disposition', f'attachment; filename="{filename}"')
                         msg.attach(part)
@@ -242,11 +227,11 @@ def send_via_smtp(sender_email, sender_password, smtp_host, smtp_port, to_email,
                     logger.error(f"Error attaching {file_path}: {e}")
         
         if smtp_port == 465:
-            with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30) as server:
                 server.login(sender_email, sender_password)
                 server.send_message(msg)
         else:
-            with smtplib.SMTP(smtp_host, smtp_port) as server:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
                 server.starttls()
                 server.login(sender_email, sender_password)
                 server.send_message(msg)
@@ -258,7 +243,6 @@ def send_via_smtp(sender_email, sender_password, smtp_host, smtp_port, to_email,
         return False, str(e)
 
 def send_via_gmail_api(service, sender_name, sender_email, to_email, subject, body, html_body, attachments):
-    """Send email using Gmail API"""
     try:
         message = MIMEMultipart('mixed')
         message['to'] = to_email
@@ -274,10 +258,10 @@ def send_via_gmail_api(service, sender_name, sender_email, to_email, subject, bo
         
         message['subject'] = Header(subject or '', 'utf-8').encode()
         
-        if body:
-            message.attach(MIMEText(body, 'plain', 'utf-8'))
         if html_body:
             message.attach(MIMEText(html_body, 'html', 'utf-8'))
+        elif body:
+            message.attach(MIMEText(body, 'plain', 'utf-8'))
         
         for file_path in attachments:
             if os.path.exists(file_path):
@@ -306,7 +290,7 @@ def send_via_gmail_api(service, sender_name, sender_email, to_email, subject, bo
             body={'raw': raw_message}
         ).execute()
         
-        return True, f"Sent via Gmail API (Message ID: {send_message.get('id')})"
+        return True, f"Sent via Gmail API"
         
     except HttpError as error:
         error_details = error._get_reason() if hasattr(error, '_get_reason') else str(error)
@@ -317,8 +301,9 @@ def send_via_gmail_api(service, sender_name, sender_email, to_email, subject, bo
         return False, str(e)
 
 def get_gmail_service():
-    """Get Gmail API service - server compatible"""
+    """Get Gmail API service - Server compatible (No local browser)"""
     if not os.path.exists(CLIENT_SECRET_FILE):
+        logger.warning("Client secret file not found")
         return None
     
     creds = None
@@ -333,25 +318,19 @@ def get_gmail_service():
         if creds and creds.expired and creds.refresh_token:
             try:
                 creds.refresh(Request())
+                logger.info("Token refreshed successfully")
+                with open(TOKEN_FILE, 'wb') as token:
+                    pickle.dump(creds, token)
             except Exception as e:
                 logger.error(f"Error refreshing token: {e}")
                 return None
         else:
-            # For server deployment, use service account or manual token generation
-            # This requires the token to be pre-generated on a local machine
-            logger.error("No valid credentials found. Token must be pre-generated.")
+            logger.error("No valid credentials found. Please upload token.pickle generated locally.")
             return None
-        
-        try:
-            with open(TOKEN_FILE, 'wb') as token:
-                pickle.dump(creds, token)
-        except Exception as e:
-            logger.error(f"Error saving token: {e}")
     
     return build('gmail', 'v1', credentials=creds)
 
 def send_single_email(email_data):
-    """Send a single email (for threading)"""
     try:
         if email_data['send_method'] == 'gmail_api':
             service = email_data.get('gmail_service')
@@ -499,7 +478,7 @@ def authorize_gmail():
         return jsonify({'error': 'Upload client_secret.json first'})
     
     return jsonify({
-        'error': 'OAuth flow must be completed on a local machine. Please generate token.pickle locally and upload it.'
+        'error': 'OAuth flow must be completed on a local machine. Please generate token.pickle locally and upload it via /upload_token endpoint.'
     })
 
 @app.route('/upload_token', methods=['POST'])
@@ -515,16 +494,30 @@ def upload_token():
     if file.filename == '':
         return jsonify({'error': 'No file selected'})
     
+    if not file.filename.endswith('.pickle'):
+        return jsonify({'error': 'File must be a .pickle file'})
+    
     try:
+        if os.path.exists(TOKEN_FILE):
+            os.remove(TOKEN_FILE)
+        
         file.save(TOKEN_FILE)
-        return jsonify({'success': True, 'message': 'Token uploaded successfully'})
+        
+        # Validate token
+        try:
+            with open(TOKEN_FILE, 'rb') as f:
+                creds = pickle.load(f)
+            return jsonify({'success': True, 'message': 'Token uploaded successfully'})
+        except Exception as e:
+            os.remove(TOKEN_FILE)
+            return jsonify({'error': f'Invalid token file: {str(e)}'})
+        
     except Exception as e:
         logger.error(f"Token upload error: {e}")
         return jsonify({'error': str(e)})
 
 @app.route('/send_emails', methods=['POST'])
 def send_emails():
-    """Send emails using background threads for performance"""
     if 'username' not in session:
         return jsonify({'success': False, 'error': 'Not logged in'})
     
@@ -567,7 +560,6 @@ def send_emails():
             if not gmail_service:
                 return jsonify({'success': False, 'error': 'Gmail API not authorized. Please upload token.pickle file.'})
         
-        # Prepare email tasks
         email_tasks = []
         for email in emails:
             processed_subject = replace_placeholders(subject, email)
@@ -591,7 +583,6 @@ def send_emails():
                 'smtp_password': smtp_password
             })
         
-        # Send emails concurrently
         success_count = 0
         failure_count = 0
         failed_emails = []
@@ -607,11 +598,9 @@ def send_emails():
                     failure_count += 1
                     failed_emails.append({'email': email, 'error': message})
                 
-                # Small delay to avoid rate limiting
                 if EMAIL_SEND_DELAY > 0:
                     time.sleep(EMAIL_SEND_DELAY)
         
-        # Update credits
         users[username]["credits_used"] = credits_used + success_count
         save_users()
         
@@ -713,7 +702,6 @@ def gmass_inbox():
 
 @app.route('/health')
 def health():
-    """Health check endpoint for deployment"""
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
@@ -722,7 +710,6 @@ def health():
 
 # ==================== CLEANUP ====================
 def cleanup_old_files():
-    """Clean up temporary files older than 1 hour"""
     while True:
         try:
             now = time.time()
@@ -731,14 +718,13 @@ def cleanup_old_files():
                     for filename in os.listdir(folder):
                         filepath = os.path.join(folder, filename)
                         if os.path.isfile(filepath):
-                            if now - os.path.getmtime(filepath) > 3600:  # 1 hour
+                            if now - os.path.getmtime(filepath) > 3600:
                                 os.unlink(filepath)
-            time.sleep(3600)  # Run every hour
+            time.sleep(3600)
         except Exception as e:
             logger.error(f"Cleanup error: {e}")
             time.sleep(3600)
 
-# Start cleanup thread
 cleanup_thread = threading.Thread(target=cleanup_old_files, daemon=True)
 cleanup_thread.start()
 
@@ -748,7 +734,7 @@ if __name__ == '__main__':
     debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
     
     print("=" * 70)
-    print(" ZMALER - Professional Email Marketing Platform (Production)")
+    print(" ZMALER - Professional Email Marketing Platform")
     print("=" * 70)
     print(f"\n🌐 Server running on {host}:{port}")
     print(f"🔧 Debug mode: {debug}")
