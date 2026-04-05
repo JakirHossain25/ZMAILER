@@ -235,8 +235,13 @@
             <div id="errorMsg" class="error-message" style="display: none;"></div>
             
             <div class="input-group">
-                <label>🔑 API Key</label>
-                <input type="text" id="apiKey" placeholder="Enter your API key" autocomplete="off">
+                <label>👤 Username</label>
+                <input type="text" id="username" placeholder="Enter your username" autocomplete="off">
+            </div>
+            
+            <div class="input-group">
+                <label>🔒 Password</label>
+                <input type="password" id="password" placeholder="Enter your password" onkeypress="if(event.key==='Enter') login()">
             </div>
             
             <button class="login-btn" id="loginBtn" onclick="login()">
@@ -244,14 +249,11 @@
             </button>
             
             <div class="credentials-box">
-                <h4>📋 Demo API Keys</h4>
+                <h4>📋 Demo Credentials</h4>
                 <div class="cred-row">
-                    <div class="cred-item"><strong>Basic User</strong> <span>basic_padma_2024</span></div>
-                    <div class="cred-item"><strong>Basic User</strong> <span>basic_jamuna_2024</span></div>
-                    <div class="cred-item"><strong>Basic User</strong> <span>basic_brahmputra_2024</span></div>
-                </div>
-                <div class="cred-row" style="margin-top: 8px;">
-                    <div class="cred-item"><strong>Premium User</strong> <span>Contact admin for premium API key</span></div>
+                    <div class="cred-item"><strong>Padma</strong> <span>/ pd1234#</span></div>
+                    <div class="cred-item"><strong>Jamuna</strong> <span>/ jm809</span></div>
+                    <div class="cred-item"><strong>Brahmputra</strong> <span>/ Br123@</span></div>
                 </div>
             </div>
             
@@ -263,15 +265,22 @@
     
     <script>
         async function login() {
-            const apiKey = document.getElementById('apiKey').value.trim();
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
             const errorDiv = document.getElementById('errorMsg');
             const loginBtn = document.getElementById('loginBtn');
             
             errorDiv.style.display = 'none';
             
-            if (!apiKey) {
-                showError('Please enter your API key');
-                document.getElementById('apiKey').focus();
+            if (!username) {
+                showError('Please enter your username');
+                document.getElementById('username').focus();
+                return;
+            }
+            
+            if (!password) {
+                showError('Please enter your password');
+                document.getElementById('password').focus();
                 return;
             }
             
@@ -287,15 +296,10 @@
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        api_key: apiKey
+                        username: username,
+                        password: password
                     })
                 });
-                
-                // Check if response is ok
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ message: 'Server error' }));
-                    throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
-                }
                 
                 const data = await response.json();
                 
@@ -303,16 +307,16 @@
                     // Successful login - redirect to dashboard
                     window.location.href = '/dashboard';
                 } else {
-                    showError(data.message || 'Invalid API key');
+                    showError(data.message || 'Invalid username or password');
                     loginBtn.disabled = false;
                     loginBtn.innerHTML = originalText;
-                    // Clear API key field
-                    document.getElementById('apiKey').value = '';
-                    document.getElementById('apiKey').focus();
+                    // Clear password field
+                    document.getElementById('password').value = '';
+                    document.getElementById('password').focus();
                 }
             } catch (error) {
                 console.error('Login error:', error);
-                showError(error.message || 'Network error. Please make sure the server is running.');
+                showError('Network error. Please make sure the server is running.');
                 loginBtn.disabled = false;
                 loginBtn.innerHTML = originalText;
             }
@@ -329,30 +333,14 @@
             }, 5000);
         }
         
-        // Set focus on API key field on page load
-        document.getElementById('apiKey').focus();
+        // Set focus on username field on page load
+        document.getElementById('username').focus();
         
         // Add enter key handler
-        document.getElementById('apiKey').addEventListener('keypress', function(e) {
+        document.getElementById('password').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 login();
             }
-        });
-        
-        // Optional: Add demo API keys for testing (can be removed in production)
-        // This makes it easier to test with demo credentials
-        const demoApiKeys = [
-            'basic_padma_2024',
-            'basic_jamuna_2024', 
-            'basic_brahmputra_2024'
-        ];
-        
-        // Double-click on logo to auto-fill demo key (hidden feature for testing)
-        let demoIndex = 0;
-        document.querySelector('.logo').addEventListener('dblclick', function() {
-            document.getElementById('apiKey').value = demoApiKeys[demoIndex % demoApiKeys.length];
-            demoIndex++;
-            showError(`Demo key loaded: ${demoApiKeys[(demoIndex-1) % demoApiKeys.length]}`, 2000);
         });
     </script>
 </body>
